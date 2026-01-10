@@ -6,21 +6,63 @@ WebSocket server that bridges remote clients to Claude Code CLI via PTY.
 Run this on your Mac, connect from any device with the modified Obsidian plugin.
 """
 
+import argparse
 import asyncio
+import fcntl
 import json
 import os
 import pty
+import secrets
 import signal
 import struct
-import fcntl
+import subprocess
 import termios
+import time
 import websockets
+from pathlib import Path
 from websockets.server import serve
 
 # Configuration
-HOST = "0.0.0.0"  # Listen on all interfaces
 PORT = 8765
 CLAUDE_CMD = ["claude"]  # The command to run
+TOKEN_DIR = Path.home() / ".claude-anywhere"
+TOKEN_FILE = TOKEN_DIR / "token"
+
+
+def get_tailscale_ip():
+    """Auto-detect Tailscale IP if running."""
+    try:
+        result = subprocess.run(
+            ["tailscale", "ip", "-4"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            ip = result.stdout.strip().split('\n')[0]
+            if ip.startswith("100."):
+                return ip
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        pass
+    return None
+
+
+def get_or_create_token():
+    """Get token from env var, file, or create a new one."""
+    # First check environment variable (set by Obsidian plugin)
+    env_token = os.environ.get('CLAUDE_ANYWHERE_TOKEN')
+    if env_token:
+        return env_token
+
+    # Fall back to file-based token
+    TOKEN_DIR.mkdir(exist_ok=True)
+
+    if TOKEN_FILE.exists():
+        return TOKEN_FILE.read_text().strip()
+
+    # Generate new token
+    token = secrets.token_urlsafe(32)
+    TOKEN_FILE.write_text(token)
+    TOKEN_FILE.chmod(0o600)  # Read/write only for owner
+    return token
 
 class ClaudeSession:
     """Manages a single Claude Code PTY session."""
@@ -191,8 +233,10 @@ class ClaudeSession:
             self.master_fd = None
 
 
-# Global session (single session for now)
+# Global state
 current_session = None  # type: ClaudeSession | None
+require_token = True  # Set by main() based on mode
+expected_token = None  # Set by main() for LAN mode
 
 
 async def handle_client(websocket):
@@ -204,6 +248,8 @@ async def handle_client(websocket):
 
     # Wait for init message with cwd
     cwd = None
+    cols = 80
+    rows = 24
     try:
         init_msg = await asyncio.wait_for(websocket.recv(), timeout=5.0)
         if init_msg.startswith("{"):
@@ -213,8 +259,25 @@ async def handle_client(websocket):
                 cols = msg.get("cols", 80)
                 rows = msg.get("rows", 24)
                 print(f"Init: cwd={cwd}, cols={cols}, rows={rows}", flush=True)
+
+                # Token validation for LAN mode
+                if require_token:
+                    client_token = msg.get("token", "")
+                    if client_token != expected_token:
+                        print(f"Auth failed: invalid token from {client_ip}", flush=True)
+                        await websocket.send(json.dumps({
+                            "type": "status",
+                            "status": "auth_failed",
+                            "message": "Invalid or missing token"
+                        }))
+                        await websocket.close()
+                        return
+                    print(f"Auth successful for {client_ip}", flush=True)
     except (asyncio.TimeoutError, json.JSONDecodeError) as e:
         print(f"No init message received: {e}", flush=True)
+        if require_token:
+            await websocket.close()
+            return
 
     async def send_status(status, message=""):
         await websocket.send(json.dumps({"type": "status", "status": status, "message": message}))
@@ -275,14 +338,90 @@ async def handle_client(websocket):
         print("Connection closed", flush=True)
 
 
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Claude Anywhere Relay Server",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Modes:
+  LAN (default)   Listens on all interfaces, requires token auth.
+                  Token is auto-generated and stored in ~/.claude-anywhere/token
+                  Add this token to your Obsidian plugin settings.
+
+  Tailscale       Listens only on Tailscale interface, no token needed.
+                  Tailscale provides authentication.
+        """
+    )
+    parser.add_argument(
+        "--tailscale", "-t",
+        action="store_true",
+        help="Use Tailscale mode (binds to Tailscale IP, no token required)"
+    )
+    parser.add_argument(
+        "--port", "-p",
+        type=int,
+        default=PORT,
+        help=f"Port to listen on (default: {PORT})"
+    )
+    return parser.parse_args()
+
+
 async def main():
     """Main entry point."""
-    print(f"Claude Anywhere Relay Server")
-    print(f"Listening on ws://{HOST}:{PORT}")
-    print(f"Connect from Obsidian plugin or test with: websocat ws://localhost:{PORT}")
+    global require_token, expected_token
+
+    args = parse_args()
+    port = args.port
+
+    print("Claude Anywhere Relay Server")
+    print("=" * 40)
+
+    if args.tailscale:
+        # Tailscale mode: bind to Tailscale IP, no token needed
+        tailscale_ip = get_tailscale_ip()
+        if not tailscale_ip:
+            print("ERROR: Tailscale not detected!")
+            print("Make sure Tailscale is installed and running.")
+            print("  Install: https://tailscale.com/download")
+            print("  Then run: tailscale up")
+            return
+
+        host = tailscale_ip
+        require_token = False
+        print(f"Mode: Tailscale (secure)")
+        print(f"Listening on ws://{host}:{port}")
+        print()
+        print("Only devices on your Tailscale network can connect.")
+        print("No token required - Tailscale handles authentication.")
+    else:
+        # LAN mode: bind to all interfaces, require token
+        host = "0.0.0.0"
+        require_token = True
+        expected_token = get_or_create_token()
+
+        # Check if this is a new token
+        token_age = TOKEN_FILE.stat().st_mtime if TOKEN_FILE.exists() else 0
+        is_new_token = (time.time() - token_age) < 5  # Created in last 5 seconds
+
+        print(f"Mode: LAN (token required)")
+        print(f"Listening on ws://{host}:{port}")
+        print()
+
+        if is_new_token:
+            print("NEW TOKEN GENERATED!")
+            print()
+
+        print(f"Token: {expected_token}")
+        print()
+        print("Add this token to your Obsidian plugin settings.")
+        print("It will sync to all your devices via Obsidian Sync.")
+
+    print()
+    print("-" * 40)
     print()
 
-    async with serve(handle_client, HOST, PORT):
+    async with serve(handle_client, host, port):
         await asyncio.Future()  # Run forever
 
 
