@@ -7695,6 +7695,28 @@ var ClaudeAnywhereSettingTab = class extends import_obsidian.PluginSettingTab {
                 })
               );
             }
+
+            // If on a different network, show option to add it
+            if (!isCurrentNetwork && currentIP) {
+              new import_obsidian.Setting(containerEl)
+                .setName("Current network")
+                .setDesc(`${currentIP} (not trusted)`)
+                .addButton((btn) =>
+                  btn
+                    .setButtonText("+ Trust this network")
+                    .onClick(async () => {
+                      // Generate next name: Home 2, Home 3, etc.
+                      const baseName = this.plugin.settings.trustedNetworkName || "Home";
+                      const newName = baseName + " 2";
+                      // For now, replace the old one (future: support multiple)
+                      this.plugin.settings.trustedNetworkName = newName;
+                      this.plugin.settings.trustedNetworkIP = currentIP;
+                      await this.plugin.saveSettings();
+                      await this.plugin.startServer();
+                      this.display();
+                    })
+                );
+            }
           } else {
             // No trusted network - show "Add" button
             new import_obsidian.Setting(containerEl)
