@@ -6764,7 +6764,10 @@ var TerminalView = class extends import_obsidian.ItemView {
     this.escapeScope.register([], 'Escape', () => {
       // Only intercept when terminal has focus
       if (this.containerEl.contains(document.activeElement)) {
-        if (this.proc && !this.proc.killed) {
+        // Send escape to local process or WebSocket
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send('\x1b');
+        } else if (this.proc && !this.proc.killed) {
           this.proc.stdin?.write('\x1b');
         }
         return false; // Block further handling by Obsidian
@@ -7008,20 +7011,60 @@ var TerminalView = class extends import_obsidian.ItemView {
     container.addClass("vault-terminal");
     this.termHost = container.createDiv({ cls: "vault-terminal-host" });
 
-    // Mobile: tap outside terminal to dismiss keyboard
-    // Use touchstart for mobile responsiveness
-    const dismissKeyboard = (e) => {
-      // If tap is on container background (not on terminal content), blur to dismiss keyboard
-      if (e.target === container || e.target === this.termHost) {
-        this.term?.blur();
-        // Also unfocus any active element
-        if (document.activeElement instanceof HTMLElement) {
-          document.activeElement.blur();
+    // Add mobile controls (arrow keys) - check if on mobile via touch support
+    const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (isMobile) {
+      this.mobileControls = container.createDiv({ cls: "mobile-arrow-controls" });
+
+      // Arrow key escape sequences
+      const arrows = [
+        { label: "←", seq: "\x1b[D", cls: "arrow-left" },
+        { label: "↓", seq: "\x1b[B", cls: "arrow-down" },
+        { label: "↑", seq: "\x1b[A", cls: "arrow-up" },
+        { label: "→", seq: "\x1b[C", cls: "arrow-right" },
+      ];
+
+      arrows.forEach(({ label, seq, cls }) => {
+        const btn = this.mobileControls.createEl("button", {
+          cls: `arrow-btn ${cls}`,
+          text: label
+        });
+        btn.addEventListener("touchstart", (e) => {
+          e.preventDefault();
+          if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(seq);
+          } else if (this.proc && !this.proc.killed) {
+            this.proc.stdin?.write(seq);
+          }
+          // Visual feedback
+          btn.classList.add("pressed");
+        });
+        btn.addEventListener("touchend", () => {
+          btn.classList.remove("pressed");
+        });
+      });
+
+      // Add Escape button (useful for vim/cancel)
+      const escBtn = this.mobileControls.createEl("button", {
+        cls: `special-btn key-esc`,
+        text: "Esc"
+      });
+      escBtn.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+          this.ws.send("\x1b");
+        } else if (this.proc && !this.proc.killed) {
+          this.proc.stdin?.write("\x1b");
         }
-      }
-    };
-    container.addEventListener("touchstart", dismissKeyboard);
-    container.addEventListener("click", dismissKeyboard);
+        escBtn.classList.add("pressed");
+      });
+      escBtn.addEventListener("touchend", () => {
+        escBtn.classList.remove("pressed");
+      });
+    }
+
+    // Keyboard dismissal is handled by the Done button in mobile controls
+    // Don't add touchend handler here as it interferes with normal terminal focus
   }
   getThemeColors() {
     const styles = getComputedStyle(document.body);
@@ -7042,9 +7085,15 @@ var TerminalView = class extends import_obsidian.ItemView {
   initTerminal() {
     if (!this.termHost)
       return;
+    // Use smaller font on mobile for more columns
+    const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    const fontSize = isMobile ? 11 : 13;
+
     this.term = new import_xterm.Terminal({
       cursorBlink: true,
-      fontSize: 13,
+      cursorStyle: 'block',  // More visible than line cursor
+      cursorInactiveStyle: 'outline',  // Show cursor even when not focused
+      fontSize: fontSize,
       fontFamily: "Menlo, Monaco, 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace",
       theme: this.getThemeColors(),
       scrollback: 10000
@@ -7346,7 +7395,7 @@ var TerminalView = class extends import_obsidian.ItemView {
           this.term?.writeln("\x1b[90m  1. You're on the same WiFi as your Mac\x1b[0m");
           this.term?.writeln("\x1b[90m  2. Server is running (check Settings on desktop)\x1b[0m");
         }
-        this.term?.writeln("\r\n\x1b[33m[Press any key to retry]\x1b[0m");
+        this.term?.writeln("\r\n\x1b[33m[Tap or press any key to retry]\x1b[0m");
       };
 
       this.ws.onerror = (error) => {
@@ -7388,6 +7437,19 @@ var TerminalView = class extends import_obsidian.ItemView {
             this.ws.send(JSON.stringify({ type: "resize", cols: c, rows: r }));
           }
         });
+
+        // Handle touch for reconnect on mobile (touch doesn't trigger onData)
+        if (this.termHost) {
+          this.termHost.addEventListener("touchend", (e) => {
+            if (this.connectionLost) {
+              e.preventDefault();
+              this.connectionLost = false;
+              this.term?.clear();
+              this.term?.writeln("Reconnecting...");
+              this.startWebSocket(this.wsServerUrl, this.wsCols, this.wsRows);
+            }
+          });
+        }
       }
 
       this.term?.focus();
@@ -7454,22 +7516,49 @@ var ServerManager = {
     if (!this.isDesktop()) return null;
     try {
       const { execSync } = require('child_process');
-      const output = execSync("tailscale ip -4 2>/dev/null", { encoding: 'utf8' });
-      const ip = output.trim().split('\n')[0];
-      return ip.startsWith('100.') ? ip : null;
+
+      // Method 1: Try tailscale ip -4 (most direct)
+      try {
+        const output = execSync("/Applications/Tailscale.app/Contents/MacOS/Tailscale ip -4 2>/dev/null || tailscale ip -4 2>/dev/null", {
+          encoding: 'utf8',
+          timeout: 5000,
+          shell: '/bin/bash'
+        });
+        const ip = output.trim().split('\n')[0];
+        if (ip && ip.startsWith('100.')) {
+          return ip;
+        }
+      } catch (e1) {
+        console.log('Tailscale ip -4 failed:', e1.message);
+      }
+
+      // Method 2: Parse network interfaces for Tailscale (utun) interface
+      try {
+        const output = execSync("ifconfig | grep -A1 'utun' | grep 'inet 100\\.' | awk '{print $2}' | head -1", {
+          encoding: 'utf8',
+          timeout: 5000,
+          shell: '/bin/bash'
+        });
+        const ip = output.trim();
+        if (ip && ip.startsWith('100.')) {
+          return ip;
+        }
+      } catch (e2) {
+        console.log('ifconfig fallback failed:', e2.message);
+      }
+
+      return null;
     } catch (e) {
+      console.error('getTailscaleIP error:', e);
       return null;
     }
   },
 
-  // Generate auth token
+  // Generate auth token (cryptographically secure)
   generateToken() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let token = '';
-    for (let i = 0; i < 32; i++) {
-      token += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return token;
+    // Use crypto for secure random token generation
+    const crypto = require('crypto');
+    return crypto.randomBytes(24).toString('base64url');
   },
 
   // Start the relay server
@@ -7483,7 +7572,7 @@ var ServerManager = {
       // Kill any existing process on port 8765
       try {
         execSync('lsof -ti:8765 | xargs kill -9 2>/dev/null', { encoding: 'utf8' });
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 100)); // Brief pause for cleanup
       } catch (e) {
         // Ignore - no process to kill
       }
@@ -7535,8 +7624,8 @@ var ServerManager = {
         this.process = null;
       });
 
-      // Give it a moment to start
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Brief pause to verify process started (spawns almost instantly)
+      await new Promise(resolve => setTimeout(resolve, 200));
 
       console.log('Server start result, process exists:', this.process !== null);
       return { success: this.process !== null };
@@ -7807,9 +7896,10 @@ var VaultTerminalPlugin = class extends import_obsidian.Plugin {
       }
     }
 
-    // Auto-start server if enabled (desktop only)
+    // Auto-start server if enabled (desktop only) - run in background to not block load
     if (ServerManager.isDesktop() && this.settings.enableRemoteAccess && this.settings.autoStartServer) {
-      await this.startServer();
+      // Don't await - let plugin load continue while server starts
+      this.startServer().catch(e => console.error('Server auto-start failed:', e));
     }
 
     this.addSettingTab(new ClaudeAnywhereSettingTab(this.app, this));

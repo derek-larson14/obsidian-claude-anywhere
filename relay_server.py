@@ -203,17 +203,40 @@ class WebSocketConnection:
 
 def get_tailscale_ip():
     """Auto-detect Tailscale IP if running."""
+    # Method 1: Try tailscale CLI (with full path for GUI apps)
+    tailscale_paths = [
+        "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+        "/usr/local/bin/tailscale",
+        "tailscale"
+    ]
+    for ts_path in tailscale_paths:
+        try:
+            result = subprocess.run(
+                [ts_path, "ip", "-4"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                ip = result.stdout.strip().split('\n')[0]
+                if ip.startswith("100."):
+                    return ip
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            continue
+
+    # Method 2: Parse network interfaces for Tailscale IP (utun interfaces)
     try:
         result = subprocess.run(
-            ["tailscale", "ip", "-4"],
+            ["ifconfig"],
             capture_output=True, text=True, timeout=5
         )
         if result.returncode == 0:
-            ip = result.stdout.strip().split('\n')[0]
-            if ip.startswith("100."):
-                return ip
-    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            # Look for 100.x.x.x addresses (Tailscale CGNAT range)
+            import re
+            matches = re.findall(r'inet (100\.\d+\.\d+\.\d+)', result.stdout)
+            if matches:
+                return matches[0]
+    except Exception:
         pass
+
     return None
 
 
@@ -510,6 +533,10 @@ async def main():
     print("Claude Anywhere Relay Server")
     print("=" * 40)
 
+    # Always require token for defense-in-depth security
+    require_token = True
+    expected_token = get_or_create_token()
+
     if args.tailscale:
         tailscale_ip = get_tailscale_ip()
         if not tailscale_ip:
@@ -517,16 +544,14 @@ async def main():
             return
 
         host = tailscale_ip
-        require_token = False
-        print(f"Mode: Tailscale (secure)")
+        print(f"Mode: Tailscale (encrypted + token)")
         print(f"Listening on ws://{host}:{port}")
     else:
         host = "0.0.0.0"
-        require_token = True
-        expected_token = get_or_create_token()
         print(f"Mode: LAN (token required)")
         print(f"Listening on ws://{host}:{port}")
-        print(f"Token: {expected_token}")
+
+    print(f"Token: {expected_token}")
 
     print()
 

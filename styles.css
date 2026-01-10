@@ -37,19 +37,67 @@
 
 .vault-terminal-host .xterm-viewport {
 	overflow-y: auto !important;
+	overflow-x: auto !important; /* Allow horizontal scroll for long filenames */
 	background-color: var(--background-secondary) !important;
 	overscroll-behavior: contain;
 	scrollbar-gutter: stable;
 }
 
-/* Keep the hidden textarea from stealing layout/focus scroll */
+/* Ensure terminal rows don't get clipped */
+.vault-terminal-host .xterm-rows {
+	overflow: visible;
+}
+
+/* Keep the hidden textarea invisible but focusable for mobile keyboard */
 .vault-terminal-host .xterm .xterm-helper-textarea {
-	position: fixed !important;
-	left: -10000px !important;
-	top: 0 !important;
-	width: 0 !important;
-	height: 0 !important;
 	opacity: 0 !important;
-	overflow: hidden !important;
-	clip: rect(0 0 0 0) !important;
+	/* Don't use width:0/height:0 or position off-screen - breaks mobile keyboard */
+}
+
+/* Mobile arrow key controls */
+.mobile-arrow-controls {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	gap: 8px;
+	padding: 8px;
+	background: var(--background-primary);
+	border-top: 1px solid var(--background-modifier-border);
+	flex-shrink: 0;
+}
+
+.mobile-arrow-controls .arrow-btn,
+.mobile-arrow-controls .special-btn {
+	width: 44px;
+	height: 44px;
+	border-radius: 8px;
+	border: 1px solid var(--background-modifier-border);
+	background: var(--background-secondary);
+	color: var(--text-normal);
+	font-size: 18px;
+	font-weight: bold;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	-webkit-tap-highlight-color: transparent;
+	user-select: none;
+}
+
+.mobile-arrow-controls .special-btn {
+	width: auto;
+	padding: 0 12px;
+	font-size: 14px;
+}
+
+.mobile-arrow-controls .arrow-btn.pressed,
+.mobile-arrow-controls .special-btn.pressed {
+	background: var(--interactive-accent);
+	color: var(--text-on-accent);
+	transform: scale(0.95);
+}
+
+.mobile-arrow-controls .arrow-btn:active,
+.mobile-arrow-controls .special-btn:active {
+	background: var(--interactive-accent);
 }
