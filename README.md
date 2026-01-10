@@ -74,7 +74,12 @@ caffeinate -d -i -s
 
 ### Keyboard/Input Issues
 - [ ] Double-escape for vim mode (escape → escape to exit insert mode)
-- [ ] Session persistence on reconnect (should pick up where you left off)
+
+## Session Behavior
+
+**On disconnect:** Claude session is killed (intentional - prevents orphan processes)
+
+**To continue a conversation:** Use Claude's built-in `/resume` command after reconnecting. This is cleaner than trying to keep sessions alive across network drops.
 
 ## Testing Checklist
 
@@ -86,7 +91,6 @@ caffeinate -d -i -s
 - [x] Trust new network when on different WiFi
 - [ ] Auto-start server on Obsidian launch
 - [ ] Server stops on plugin unload
-- [ ] Reconnection after disconnect
 
 ### Tailscale Mode
 - [ ] Tailscale IP auto-detection
