@@ -1,6 +1,6 @@
 # Claude Anywhere
 
-Run Claude Code on your mobile device(s) via Tailscale.
+Run Claude Code from Obsidian on your mobile device(s).
 
 ## Compatibility
 
