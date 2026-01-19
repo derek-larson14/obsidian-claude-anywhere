@@ -11,6 +11,7 @@ Run Claude Code on your mobile device(s) via Tailscale.
 
 - Mac with [Claude Code](https://claude.ai/claude-code) installed
 - [Tailscale](https://tailscale.com/download) on both devices (same account)
+- File sync between Mac and mobile (Obsidian Sync, iCloud, Dropbox, etc.)
 - External keyboard recommended
 
 ## Setup
@@ -36,18 +37,19 @@ mkdir -p .obsidian/plugins/claude-anywhere && cd .obsidian/plugins/claude-anywhe
 
 #### 4. Keep Your Mac Awake
 
-While using Claude remotely, prevent your Mac from sleeping. Open Terminal and run:
+While using Claude remotely, prevent your Mac from sleeping.
+
+**Option A: Amphetamine (Recommended)**
+
+Install [Amphetamine](https://apps.apple.com/us/app/amphetamine/id937984704?mt=12) from the App Store. It provides a menu bar icon to easily toggle sleep prevention with options for timed sessions, triggers, and more.
+
+**Option B: Terminal**
 
 ```bash
 caffeinate -dis
 ```
 
 This prevents sleep even when closing the lid (while plugged in). Close the Terminal window or press `Ctrl+C` to restore normal sleep behavior.
-
-For a timed session (e.g., 2 hours):
-```bash
-caffeinate -dis -t 7200
-```
 
 ### Mobile Device (Client)
 
@@ -96,6 +98,10 @@ Mobile                          Mac
 
 Connection: ws://100.x.x.x:8765 (Tailscale IP)
 ```
+
+**Why file sync?**
+- **Tailscale** handles terminal communication - what you type and what Claude says streams directly to your mobile device
+- **File sync** handles Claude's edits - when Claude modifies files, those changes happen on your Mac's filesystem. Sync pushes them to your mobile device so you can see them in Obsidian.
 
 ## Session Behavior
 
