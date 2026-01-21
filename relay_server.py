@@ -25,6 +25,15 @@ from pathlib import Path
 # Configuration
 PORT = 8765
 
+# Sync block markers - Claude Code wraps large updates in these
+# Stripping them prevents xterm.js from buffering massive atomic updates
+SYNC_START = b'\x1b[?2026h'
+SYNC_END = b'\x1b[?2026l'
+
+def strip_sync_markers(data: bytes) -> bytes:
+    """Remove synchronized update markers from terminal output."""
+    return data.replace(SYNC_START, b'').replace(SYNC_END, b'')
+
 def find_claude():
     """Find the claude executable."""
     # Common locations
@@ -296,44 +305,74 @@ class ClaudeSession:
             }))
 
     async def _read_pty(self):
-        """Read from PTY and send to WebSocket."""
+        """Read from PTY and send to WebSocket using efficient async I/O."""
         loop = asyncio.get_event_loop()
 
-        while True:
-            try:
+        # Set non-blocking mode on the PTY
+        flags = fcntl.fcntl(self.master_fd, fcntl.F_GETFL)
+        fcntl.fcntl(self.master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+        # Event to signal when data is ready
+        data_ready = asyncio.Event()
+
+        def on_readable():
+            data_ready.set()
+
+        # Register the FD with the event loop (efficient, no threads)
+        loop.add_reader(self.master_fd, on_readable)
+
+        try:
+            while True:
                 if not self.is_alive():
                     await self.send_status("session_ended", "Claude session ended")
                     break
 
-                ready = await loop.run_in_executor(None, self._wait_for_read)
-                if not ready:
-                    continue
+                # Wait for data or timeout (for periodic liveness checks)
+                try:
+                    await asyncio.wait_for(data_ready.wait(), timeout=1.0)
+                    data_ready.clear()
+                except asyncio.TimeoutError:
+                    continue  # Check is_alive and loop
 
-                data = os.read(self.master_fd, 4096)
-                if not data:
-                    await self.send_status("session_ended", "Claude session ended")
+                # Read all available data
+                try:
+                    data = os.read(self.master_fd, 4096)
+                    if not data:
+                        await self.send_status("session_ended", "Claude session ended")
+                        break
+
+                    # Strip sync markers to prevent xterm.js jerkiness
+                    data = strip_sync_markers(data)
+
+                    if self.websocket and self.websocket.open:
+                        await self.websocket.send(data.decode("utf-8", errors="replace"))
+
+                except BlockingIOError:
+                    # No data available yet, wait for next event
+                    continue
+                except OSError as e:
+                    await self.send_status("session_ended", f"Connection lost: {e}")
                     break
 
-                if self.websocket and self.websocket.open:
-                    await self.websocket.send(data.decode("utf-8", errors="replace"))
-
-            except OSError as e:
-                await self.send_status("session_ended", f"Connection lost: {e}")
-                break
+        except Exception as e:
+            print(f"PTY read error: {e}", flush=True)
+        finally:
+            # Always clean up the reader
+            try:
+                loop.remove_reader(self.master_fd)
             except Exception:
-                break
+                pass
 
         self.pid = None
-
-    def _wait_for_read(self):
-        """Block until PTY has data."""
-        readable, _, _ = select.select([self.master_fd], [], [], 0.5)
-        return len(readable) > 0
 
     def write(self, data: str):
         """Write input to PTY."""
         if self.master_fd:
-            os.write(self.master_fd, data.encode("utf-8"))
+            # Filter out replacement characters (U+FFFD) that appear from
+            # invalid UTF-8 sequences on Android keyboards
+            data = data.replace('\ufffd', '')
+            if data:  # Only write if there's something left
+                os.write(self.master_fd, data.encode("utf-8"))
 
     def resize(self, cols: int, rows: int):
         """Resize the PTY."""

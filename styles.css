@@ -1,10 +1,10 @@
-.workspace-leaf-content[data-type="vault-terminal"] .view-content {
+.workspace-leaf-content[data-type="claude-anywhere-terminal"] .view-content {
 	overflow: clip;
 	display: flex;
 	flex-direction: column;
 }
 
-.vault-terminal {
+.claude-anywhere-container {
 	height: 100%;
 	min-height: 0;
 	display: flex;
@@ -16,7 +16,7 @@
 	overflow: hidden;
 }
 
-.vault-terminal-host {
+.claude-anywhere-host {
 	flex: 1;
 	min-height: 0;
 	overflow: hidden;
@@ -25,17 +25,17 @@
 	overscroll-behavior: contain;
 }
 
-.vault-terminal-host .xterm {
+.claude-anywhere-host .xterm {
 	height: 100%;
 	/* DO NOT add padding here - it breaks xterm canvas character positioning */
 	background-color: var(--background-secondary) !important;
 }
 
-.vault-terminal-host .xterm .xterm-screen {
+.claude-anywhere-host .xterm .xterm-screen {
 	background-color: var(--background-secondary) !important;
 }
 
-.vault-terminal-host .xterm-viewport {
+.claude-anywhere-host .xterm-viewport {
 	overflow-y: auto !important;
 	overflow-x: auto !important; /* Allow horizontal scroll for long filenames */
 	background-color: var(--background-secondary) !important;
@@ -44,36 +44,36 @@
 }
 
 /* Ensure terminal rows don't get clipped */
-.vault-terminal-host .xterm-rows {
+.claude-anywhere-host .xterm-rows {
 	overflow: visible;
 }
 
 /* Keep the hidden textarea invisible but focusable for mobile keyboard */
-.vault-terminal-host .xterm .xterm-helper-textarea {
+.claude-anywhere-host .xterm .xterm-helper-textarea {
 	opacity: 0 !important;
 	caret-color: transparent !important; /* Hide iOS text cursor */
 	/* Don't use width:0/height:0 or position off-screen - breaks mobile keyboard */
 }
 
 /* Constrain IME composition preview (e.g., Gboard voice input) to terminal width */
-.vault-terminal-host .xterm {
+.claude-anywhere-host .xterm {
 	contain: layout style;
 	overflow: clip;
 }
 
 /* Force IME composition text to stay within bounds */
-.vault-terminal-host .xterm-helper-textarea {
+.claude-anywhere-host .xterm-helper-textarea {
 	max-width: 100% !important;
 	word-wrap: break-word !important;
 	overflow-wrap: break-word !important;
 }
 
 /* Prevent composition preview from overflowing container */
-.vault-terminal {
+.claude-anywhere-container {
 	contain: layout;
 }
 
-.workspace-leaf-content[data-type="vault-terminal"] {
+.workspace-leaf-content[data-type="claude-anywhere-terminal"] {
 	contain: layout style;
 	overflow: clip;
 }
@@ -128,8 +128,8 @@
 
 /* Mobile: Font with good Unicode/box-drawing support */
 /* Android: Roboto Mono, iOS: SF Mono */
-.is-mobile .vault-terminal-host .xterm,
-.is-mobile .vault-terminal-host .xterm-rows {
+.is-mobile .claude-anywhere-host .xterm,
+.is-mobile .claude-anywhere-host .xterm-rows {
 	font-family: "Roboto Mono", "SF Mono", Menlo, monospace !important;
 }
 
@@ -149,4 +149,24 @@
 .is-mobile .mobile-arrow-controls .special-btn {
 	padding: 0 12px;
 	font-size: 13px;
+}
+
+/* Mobile: Bigger scrollbar for easier touch scrolling */
+.is-mobile .claude-anywhere-host .xterm-viewport::-webkit-scrollbar {
+	width: 24px;
+}
+
+.is-mobile .claude-anywhere-host .xterm-viewport::-webkit-scrollbar-track {
+	background: var(--background-secondary);
+}
+
+.is-mobile .claude-anywhere-host .xterm-viewport::-webkit-scrollbar-thumb {
+	background: var(--background-modifier-border);
+	border-radius: 8px;
+	border: 3px solid var(--background-secondary);
+	min-height: 60px;
+}
+
+.is-mobile .claude-anywhere-host .xterm-viewport::-webkit-scrollbar-thumb:active {
+	background: var(--text-muted);
 }

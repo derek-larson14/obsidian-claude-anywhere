@@ -6744,6 +6744,8 @@ var TerminalView = class extends import_obsidian.ItemView {
     this.lastStableScrollPos = 0;
     this.scrollLockUntil = 0;
     this.scrollRestoreTimeout = null;
+    this.lastScrollTime = 0;
+    this.wasAtBottom = true;
   }
   getViewType() {
     return VIEW_TYPE;
@@ -6784,10 +6786,10 @@ var TerminalView = class extends import_obsidian.ItemView {
     this.dispose();
   }
   injectCSS() {
-    if (document.getElementById("xterm-css"))
+    if (document.getElementById("xterm-css-anywhere"))
       return;
     const style = document.createElement("style");
-    style.id = "xterm-css";
+    style.id = "xterm-css-anywhere";
     style.textContent = `/**
  * Copyright (c) 2014 The xterm.js authors. All rights reserved.
  * Copyright (c) 2012-2013, Christopher Jeffrey (MIT License)
@@ -7012,8 +7014,8 @@ var TerminalView = class extends import_obsidian.ItemView {
   buildUI() {
     const container = this.containerEl;
     container.empty();
-    container.addClass("vault-terminal");
-    this.termHost = container.createDiv({ cls: "vault-terminal-host" });
+    container.addClass("claude-anywhere-container");
+    this.termHost = container.createDiv({ cls: "claude-anywhere-host" });
 
     // Add mobile controls (arrow keys) - check if on mobile via touch support
     const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
@@ -7162,29 +7164,45 @@ var TerminalView = class extends import_obsidian.ItemView {
     // Ink TUI redraws can cause unwanted jumps to top; this detects and restores position
     this.term.onScroll((scrollPos) => {
       const now = Date.now();
-      // If we're in a lock period, ignore scroll events
+      const maxScroll = this.term.buffer.active.baseY;
+      const isAtBottom = scrollPos >= maxScroll - 2;
+
+      // During lock period, only allow scroll-to-bottom (following new output)
       if (now < this.scrollLockUntil) {
+        if (isAtBottom) {
+          this.scrollLockUntil = 0;
+          if (this.scrollRestoreTimeout) {
+            clearTimeout(this.scrollRestoreTimeout);
+            this.scrollRestoreTimeout = null;
+          }
+          this.lastStableScrollPos = scrollPos;
+          this.wasAtBottom = true;
+        }
         return;
       }
-      // Detect suspicious jump: position suddenly 0 from a significant scroll position (>10 lines)
-      const SIGNIFICANT_SCROLL_THRESHOLD = 10;
-      if (scrollPos === 0 && this.lastStableScrollPos > SIGNIFICANT_SCROLL_THRESHOLD) {
-        // Clear any pending restore
+
+      // Detect suspicious jump: instant jump to 0 from scrolled-down position
+      const JUMP_THRESHOLD = 10;
+      if (scrollPos === 0 && this.lastStableScrollPos > JUMP_THRESHOLD) {
         if (this.scrollRestoreTimeout) {
           clearTimeout(this.scrollRestoreTimeout);
         }
-        // Lock scroll updates for 200ms to prevent conflicting updates
         this.scrollLockUntil = now + 200;
-        // Restore after brief delay (50ms) to let the redraw settle
+        const restorePos = this.lastStableScrollPos;
+        const shouldRestoreToBottom = this.wasAtBottom;
         this.scrollRestoreTimeout = setTimeout(() => {
           if (this.term) {
-            this.term.scrollToLine(this.lastStableScrollPos);
+            if (shouldRestoreToBottom) {
+              this.term.scrollToBottom();
+            } else {
+              this.term.scrollToLine(restorePos);
+            }
           }
           this.scrollRestoreTimeout = null;
         }, 50);
-      } else {
-        // Normal scroll - update stable position
+      } else if (scrollPos > 0) {
         this.lastStableScrollPos = scrollPos;
+        this.wasAtBottom = isAtBottom;
       }
     });
     this.term.attachCustomKeyEventHandler((ev) => {
