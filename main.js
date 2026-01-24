@@ -7133,16 +7133,27 @@ var TerminalView = class extends import_obsidian.ItemView {
     this.term.open(this.termHost);
     this.term.parser?.registerCsiHandler({ final: "I" }, () => true);
     this.term.parser?.registerCsiHandler({ final: "O" }, () => true);
-    // Fix for Android GBoard voice dictation: clear textarea before new composition starts
-    // Without this, the textarea accumulates text between voice inputs, causing
-    // subsequent dictations to include stale content from previous inputs
+    // Fix for Android GBoard voice dictation: clear stale textarea content
+    // Voice dictation accumulates text across multiple inputs (e.g., "hello" then "world" → "helloworld")
+    // But we must NOT clear for normal on-screen keyboard IME input (single characters)
     // See: https://github.com/xtermjs/xterm.js/issues/3600
     const textarea = this.term.textarea;
     if (textarea) {
+      this.lastCompositionEnd = 0;
+
+      this.compositionEndHandler = () => {
+        this.lastCompositionEnd = Date.now();
+      };
+      textarea.addEventListener('compositionend', this.compositionEndHandler);
+
       this.compositionStartHandler = () => {
-        // Clear stale content BEFORE xterm's handler captures start position
-        // Using capture phase ensures this runs before xterm's bubble-phase listener
-        textarea.value = "";
+        // Only clear if there's stale content from a previous composition session
+        // Stale = content exists AND it's been >500ms since last compositionend
+        // This preserves normal IME typing (rapid compositions) while fixing voice dictation accumulation
+        const timeSinceLastEnd = Date.now() - this.lastCompositionEnd;
+        if (textarea.value.length > 0 && timeSinceLastEnd > 500) {
+          textarea.value = "";
+        }
       };
       // capture: true makes this run BEFORE xterm's compositionstart handler
       textarea.addEventListener('compositionstart', this.compositionStartHandler, true);
@@ -7591,6 +7602,10 @@ var TerminalView = class extends import_obsidian.ItemView {
     if (this.compositionStartHandler) {
       this.term?.textarea?.removeEventListener('compositionstart', this.compositionStartHandler, true);
       this.compositionStartHandler = null;
+    }
+    if (this.compositionEndHandler) {
+      this.term?.textarea?.removeEventListener('compositionend', this.compositionEndHandler);
+      this.compositionEndHandler = null;
     }
     if (this.fitTimeout) {
       clearTimeout(this.fitTimeout);
