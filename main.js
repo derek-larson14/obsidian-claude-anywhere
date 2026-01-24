@@ -7528,10 +7528,11 @@ var TerminalView = class extends import_obsidian.ItemView {
         this.connectionLost = true;
 
         // Show helpful error message
-        this.term?.writeln("\r\n\x1b[33m[Connection failed]\x1b[0m");
-        this.term?.writeln("\x1b[90mMake sure:\x1b[0m");
-        this.term?.writeln("\x1b[90m  1. Tailscale is connected on this device\x1b[0m");
-        this.term?.writeln("\x1b[90m  2. Server is running on your Mac (check Settings)\x1b[0m");
+        this.term?.writeln("\r\n\x1b[33m[Can't reach your Mac]\x1b[0m");
+        this.term?.writeln("\x1b[90mCheck that:\x1b[0m");
+        this.term?.writeln("\x1b[90m  1. Server is enabled in Claude Anywhere settings\x1b[0m");
+        this.term?.writeln("\x1b[90m  2. Obsidian is open on your Mac\x1b[0m");
+        this.term?.writeln("\x1b[90m  3. Tailscale is connected on both devices\x1b[0m");
         this.term?.writeln("\r\n\x1b[90m[Tap or press any key to retry]\x1b[0m");
       };
 

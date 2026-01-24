@@ -1,7 +1,7 @@
 {
 	"id": "claude-anywhere",
 	"name": "Claude Anywhere",
-	"version": "1.0.4",
+	"version": "1.0.5",
 	"minAppVersion": "1.0.0",
 	"description": "Run Claude Code from any device via remote relay server.",
 	"author": "Derek Larson",
