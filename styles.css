@@ -151,7 +151,7 @@
 	font-size: 13px;
 }
 
-/* Mobile: Bigger scrollbar for easier touch scrolling */
+/* Mobile: Bigger scrollbar for easier touch scrolling (Android) */
 .is-mobile .claude-anywhere-host .xterm-viewport::-webkit-scrollbar {
 	width: 24px;
 }
@@ -169,4 +169,70 @@
 
 .is-mobile .claude-anywhere-host .xterm-viewport::-webkit-scrollbar-thumb:active {
 	background: var(--text-muted);
+}
+
+/* iOS custom scrollbar (native scrollbars don't show on iOS) */
+.ios-scroll-track {
+	position: absolute;
+	top: 0;
+	right: 4px;
+	width: 24px;
+	height: 100%;
+	background: var(--background-modifier-border);
+	border-radius: 12px;
+	opacity: 0;
+	transition: opacity 0.3s ease;
+	z-index: 10;
+	touch-action: none;
+}
+
+.ios-scroll-track.visible {
+	opacity: 0.4;
+}
+
+.ios-scroll-indicator {
+	position: absolute;
+	top: 0;
+	right: 4px;
+	width: 24px;
+	min-height: 80px;
+	background: var(--text-muted);
+	border-radius: 12px;
+	opacity: 0;
+	transition: opacity 0.3s ease;
+	z-index: 11;
+	touch-action: none;
+}
+
+.ios-scroll-indicator.visible {
+	opacity: 0.8;
+}
+
+.ios-scroll-indicator.dragging {
+	opacity: 1;
+	background: var(--text-normal);
+}
+
+/* iOS keyboard handling - when keyboard is open, container has fixed height */
+.claude-anywhere-container.keyboard-open {
+	/* Height is set dynamically via JS to match visualViewport.height */
+	overflow: hidden;
+	/* Remove bottom padding since we're now sized to visible area */
+	padding-bottom: 8px;
+}
+
+/* Ensure mobile controls stay visible when keyboard is open */
+.claude-anywhere-container.keyboard-open .mobile-arrow-controls {
+	position: relative;
+	flex-shrink: 0;
+	/* Slightly reduce padding when keyboard is open to save space */
+	padding: 4px;
+	gap: 4px;
+}
+
+/* Make terminal host take remaining space when keyboard open */
+.claude-anywhere-container.keyboard-open .claude-anywhere-host {
+	flex: 1;
+	min-height: 0;
+	overflow: hidden;
 }

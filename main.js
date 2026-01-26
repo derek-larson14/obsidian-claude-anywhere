@@ -6746,6 +6746,9 @@ var TerminalView = class extends import_obsidian.ItemView {
     this.scrollRestoreTimeout = null;
     this.lastScrollTime = 0;
     this.wasAtBottom = true;
+    // iOS keyboard handling
+    this.visualViewportHandler = null;
+    this.isiOS = false;
   }
   getViewType() {
     return VIEW_TYPE;
@@ -7017,6 +7020,101 @@ var TerminalView = class extends import_obsidian.ItemView {
     container.addClass("claude-anywhere-container");
     this.termHost = container.createDiv({ cls: "claude-anywhere-host" });
 
+    // Add custom scrollbar for iOS (native scrollbars don't show)
+    const ua = navigator.userAgent;
+    const isiOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (isiOS) {
+      this.scrollTrack = this.termHost.createDiv({ cls: "ios-scroll-track" });
+      this.scrollIndicator = this.termHost.createDiv({ cls: "ios-scroll-indicator" });
+
+      // Make scrollbar draggable
+      let isDragging = false;
+      let startY = 0;
+      let startScrollPos = 0;
+
+      const handleDragStart = (e) => {
+        if (!this.term) return;
+        isDragging = true;
+        startY = e.touches ? e.touches[0].clientY : e.clientY;
+        startScrollPos = this.term.buffer.active.viewportY;
+        this.scrollIndicator.classList.add('dragging', 'visible');
+        this.scrollTrack?.classList.add('visible');
+        clearTimeout(this.scrollIndicatorTimeout);
+        e.preventDefault();
+      };
+
+      const handleDragMove = (e) => {
+        if (!isDragging) return;
+        const viewport = this.termHost?.querySelector('.xterm-viewport');
+        if (!viewport) return;
+        const currentY = e.touches ? e.touches[0].clientY : e.clientY;
+        const deltaY = currentY - startY;
+        const hostHeight = this.termHost.clientHeight;
+        const scrollHeight = viewport.scrollHeight;
+        const clientHeight = viewport.clientHeight;
+        const maxScroll = scrollHeight - clientHeight;
+        // Calculate thumb height to get actual track space
+        const thumbHeight = Math.max(80, hostHeight * (clientHeight / scrollHeight));
+        const trackSpace = hostHeight - thumbHeight;
+        // Convert pixel movement to scroll pixels (1:1 with track space)
+        const scrollDelta = trackSpace > 0 ? (deltaY / trackSpace) * maxScroll : 0;
+        const newScrollTop = Math.max(0, Math.min(maxScroll, startScrollPos + scrollDelta));
+        viewport.scrollTop = newScrollTop;
+        e.preventDefault();
+      };
+
+      const handleDragEnd = () => {
+        isDragging = false;
+        this.scrollIndicator.classList.remove('dragging');
+        // Hide after delay
+        this.scrollIndicatorTimeout = setTimeout(() => {
+          this.scrollIndicator?.classList.remove('visible');
+          this.scrollTrack?.classList.remove('visible');
+        }, 2000);
+      };
+
+      // Touch events for thumb
+      this.scrollIndicator.addEventListener('touchstart', (e) => {
+        const viewport = this.termHost?.querySelector('.xterm-viewport');
+        if (!viewport) return;
+        isDragging = true;
+        startY = e.touches[0].clientY;
+        startScrollPos = viewport.scrollTop;
+        this.scrollIndicator.classList.add('dragging', 'visible');
+        this.scrollTrack?.classList.add('visible');
+        clearTimeout(this.scrollIndicatorTimeout);
+        e.preventDefault();
+      }, { passive: false });
+      document.addEventListener('touchmove', handleDragMove, { passive: false });
+      document.addEventListener('touchend', handleDragEnd);
+
+      // Tap on track to jump to position
+      this.scrollTrack.addEventListener('touchstart', (e) => {
+        const viewport = this.termHost?.querySelector('.xterm-viewport');
+        if (!viewport) return;
+        // Show scrollbar
+        this.scrollIndicator.classList.add('visible');
+        this.scrollTrack.classList.add('visible');
+        clearTimeout(this.scrollIndicatorTimeout);
+        // Jump to tap position
+        const trackRect = this.scrollTrack.getBoundingClientRect();
+        const tapY = e.touches[0].clientY - trackRect.top;
+        const percent = tapY / trackRect.height;
+        const maxScroll = viewport.scrollHeight - viewport.clientHeight;
+        viewport.scrollTop = percent * maxScroll;
+        // Hide after delay
+        this.scrollIndicatorTimeout = setTimeout(() => {
+          this.scrollIndicator?.classList.remove('visible');
+          this.scrollTrack?.classList.remove('visible');
+        }, 2000);
+        e.preventDefault();
+      }, { passive: false });
+
+      // Store cleanup refs
+      this._scrollDragMove = handleDragMove;
+      this._scrollDragEnd = handleDragEnd;
+    }
+
     // Add mobile controls (arrow keys) - check if on mobile via touch support
     const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     if (isMobile) {
@@ -7025,8 +7123,8 @@ var TerminalView = class extends import_obsidian.ItemView {
       // Arrow key escape sequences
       const arrows = [
         { label: "←", seq: "\x1b[D", cls: "arrow-left" },
-        { label: "↓", seq: "\x1b[B", cls: "arrow-down" },
         { label: "↑", seq: "\x1b[A", cls: "arrow-up" },
+        { label: "↓", seq: "\x1b[B", cls: "arrow-down" },
         { label: "→", seq: "\x1b[C", cls: "arrow-right" },
       ];
 
@@ -7133,6 +7231,12 @@ var TerminalView = class extends import_obsidian.ItemView {
     this.term.open(this.termHost);
     this.term.parser?.registerCsiHandler({ final: "I" }, () => true);
     this.term.parser?.registerCsiHandler({ final: "O" }, () => true);
+    // iOS: Listen to viewport scroll directly for accurate scroll indicator
+    const viewport = this.termHost?.querySelector('.xterm-viewport');
+    if (viewport && this.scrollIndicator) {
+      this._viewportScrollHandler = () => this.updateiOSScrollIndicator();
+      viewport.addEventListener('scroll', this._viewportScrollHandler, { passive: true });
+    }
     // Fix for Android GBoard voice dictation: clear stale textarea content
     // Voice dictation accumulates text across multiple inputs (e.g., "hello" then "world" → "helloworld")
     // But we must NOT clear for normal on-screen keyboard IME input (single characters)
@@ -7177,6 +7281,9 @@ var TerminalView = class extends import_obsidian.ItemView {
       const now = Date.now();
       const maxScroll = this.term.buffer.active.baseY;
       const isAtBottom = scrollPos >= maxScroll - 2;
+
+      // Update iOS scroll indicator (using DOM scroll position for accuracy)
+      this.updateiOSScrollIndicator();
 
       // During lock period, only allow scroll-to-bottom (following new output)
       if (now < this.scrollLockUntil) {
@@ -7270,6 +7377,93 @@ var TerminalView = class extends import_obsidian.ItemView {
     this.themeObserver.observe(document.body, { attributes: true, attributeFilter: ["class"] });
     // Watch for Obsidian layout changes (sidebar resize, etc.)
     this.registerEvent(this.app.workspace.onLayoutChange(() => this.debouncedFit()));
+    // iOS keyboard handling via visualViewport API
+    this.setupiOSKeyboardHandler();
+  }
+  setupiOSKeyboardHandler() {
+    // Detect iOS (iPhone/iPad) - iOS handles keyboard differently than Android
+    const ua = navigator.userAgent;
+    this.isiOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+    if (!this.isiOS || !window.visualViewport) return;
+
+    const container = this.containerEl;
+    let lastWindowHeight = window.innerHeight;
+    let wasKeyboardOpen = false;
+
+    this.visualViewportHandler = () => {
+      const viewport = window.visualViewport;
+      // Calculate keyboard height by comparing visual viewport to window height
+      const keyboardHeight = window.innerHeight - viewport.height;
+      const isKeyboardOpen = keyboardHeight > 100; // Threshold to detect keyboard
+
+      if (isKeyboardOpen) {
+        // Get container's position relative to viewport
+        const containerRect = container.getBoundingClientRect();
+        // Calculate how much of the container is covered by keyboard
+        const visibleBottom = viewport.height + viewport.offsetTop;
+        const containerBottom = containerRect.top + containerRect.height;
+        const overlap = Math.max(0, containerBottom - visibleBottom);
+
+        if (overlap > 0) {
+          // Shrink container to fit above keyboard
+          const newHeight = containerRect.height - overlap;
+          container.style.height = `${newHeight}px`;
+          container.classList.add('keyboard-open');
+          // Scroll terminal to keep cursor visible
+          if (this.term && !wasKeyboardOpen) {
+            this.term.scrollToBottom();
+          }
+        }
+        wasKeyboardOpen = true;
+      } else {
+        // Keyboard closed - restore full height
+        container.style.height = '';
+        container.classList.remove('keyboard-open');
+        wasKeyboardOpen = false;
+      }
+      // Refit terminal to new dimensions
+      this.debouncedFit();
+    };
+
+    window.visualViewport.addEventListener('resize', this.visualViewportHandler);
+    window.visualViewport.addEventListener('scroll', this.visualViewportHandler);
+  }
+  updateiOSScrollIndicator() {
+    if (!this.scrollIndicator || !this.term) return;
+
+    // Use the actual xterm viewport element's scroll position
+    const viewport = this.termHost?.querySelector('.xterm-viewport');
+    if (!viewport) return;
+
+    const scrollTop = viewport.scrollTop;
+    const scrollHeight = viewport.scrollHeight;
+    const clientHeight = viewport.clientHeight;
+    const maxScroll = scrollHeight - clientHeight;
+
+    if (maxScroll <= 0) return;
+
+    const hostHeight = this.termHost.clientHeight;
+    // Thumb size proportional to visible area
+    const thumbHeight = Math.max(80, hostHeight * (clientHeight / scrollHeight));
+    const trackSpace = hostHeight - thumbHeight;
+    // Position based on scroll percentage
+    const scrollPercent = scrollTop / maxScroll;
+    const thumbTop = scrollPercent * trackSpace;
+
+    this.scrollIndicator.style.height = `${thumbHeight}px`;
+    this.scrollIndicator.style.top = `${thumbTop}px`;
+
+    // Show scrollbar briefly
+    this.scrollIndicator.classList.add('visible');
+    this.scrollTrack?.classList.add('visible');
+    clearTimeout(this.scrollIndicatorTimeout);
+    this.scrollIndicatorTimeout = setTimeout(() => {
+      if (!this.scrollIndicator?.classList.contains('dragging')) {
+        this.scrollIndicator?.classList.remove('visible');
+        this.scrollTrack?.classList.remove('visible');
+      }
+    }, 2000);
   }
   fit() {
     if (!this.term || !this.fitAddon) return;
@@ -7596,6 +7790,26 @@ var TerminalView = class extends import_obsidian.ItemView {
   dispose() {
     this.resizeObserver?.disconnect();
     this.themeObserver?.disconnect();
+    // Clean up iOS keyboard handler
+    if (this.visualViewportHandler && window.visualViewport) {
+      window.visualViewport.removeEventListener('resize', this.visualViewportHandler);
+      window.visualViewport.removeEventListener('scroll', this.visualViewportHandler);
+      this.visualViewportHandler = null;
+    }
+    // Clean up iOS scrollbar handlers
+    if (this._viewportScrollHandler) {
+      const viewport = this.termHost?.querySelector('.xterm-viewport');
+      viewport?.removeEventListener('scroll', this._viewportScrollHandler);
+      this._viewportScrollHandler = null;
+    }
+    if (this._scrollDragMove) {
+      document.removeEventListener('touchmove', this._scrollDragMove);
+      this._scrollDragMove = null;
+    }
+    if (this._scrollDragEnd) {
+      document.removeEventListener('touchend', this._scrollDragEnd);
+      this._scrollDragEnd = null;
+    }
     if (this.pasteDebounceHandler) {
       this.termHost?.removeEventListener('paste', this.pasteDebounceHandler, true);
       this.pasteDebounceHandler = null;
@@ -7619,6 +7833,10 @@ var TerminalView = class extends import_obsidian.ItemView {
     if (this.scrollRestoreTimeout) {
       clearTimeout(this.scrollRestoreTimeout);
       this.scrollRestoreTimeout = null;
+    }
+    if (this.scrollIndicatorTimeout) {
+      clearTimeout(this.scrollIndicatorTimeout);
+      this.scrollIndicatorTimeout = null;
     }
     if (this.escapeScope) {
       this.app.keymap.popScope(this.escapeScope);
