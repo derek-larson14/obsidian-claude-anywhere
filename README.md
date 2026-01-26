@@ -6,7 +6,7 @@ Built by [Derek Larson](https://dtlarson.com) for [Delegate with Claude](https:/
 
 ![Claude Anywhere on tablet](tablet-image.png)
 
-- **Edit files anywhere** - Notes in your vault, code in other repos, config files. Not limited to Obsidian.
+- **Edit files across your Mac** - Notes in your vault, code in other repos, config files. Not limited to Obsidian.
 - **Run your custom skills** - `/commit`, `/calendar`, whatever you've built. Your workflow travels with you.
 - **Full terminal access** - Git, npm, scripts. Anything Claude Code can do on desktop.
 - **Resume on desktop** - Pick up conversations where you left off with `/resume`.
