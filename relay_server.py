@@ -284,6 +284,21 @@ class ClaudeSession:
                         if os.path.isdir(try_path):
                             cwd = try_path
                             break
+
+                # Check for defaultFolder in plugin settings
+                try:
+                    settings_path = os.path.join(cwd, ".obsidian", "plugins", "claude-anywhere", "data.json")
+                    if os.path.exists(settings_path):
+                        with open(settings_path, 'r') as f:
+                            settings = json.load(f)
+                            default_folder = settings.get("defaultFolder", "").strip()
+                            if default_folder:
+                                folder_path = os.path.join(cwd, default_folder)
+                                if os.path.isdir(folder_path):
+                                    cwd = folder_path
+                except (OSError, json.JSONDecodeError):
+                    pass  # Ignore errors, use original cwd
+
                 try:
                     os.chdir(cwd)
                 except OSError:
