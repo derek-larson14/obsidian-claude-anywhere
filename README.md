@@ -2,12 +2,12 @@
 
 Your Mac's Claude Code, from your phone or tablet.
 
-Built by [Derek Larson](https://dtlarson.com) for [Delegate with Claude](https://delegatewithclaude.com).
+Built by [Derek Larson](https://dtlarson.com). [Get the commands →](https://delegatewithclaude.com/commands)
 
 ![Claude Anywhere on tablet](tablet-image.png)
 
 - **Edit files across your Mac** - Notes in your vault, code in other repos, config files. Not limited to Obsidian.
-- **Run your custom skills** - `/commit`, `/calendar`, whatever you've built. Your workflow travels with you.
+- **Run your skills** - `/morning`, `/mail`, `/voice`, whatever you've built. Your workflow travels with you.
 - **Full terminal access** - Git, npm, scripts. Anything Claude Code can do on desktop.
 - **Resume on desktop** - Pick up conversations where you left off with `/resume`.
 
