@@ -2,7 +2,7 @@
 
 Your Mac's Claude Code, from your phone or tablet.
 
-Built by [Derek Larson](https://dtlarson.com). [Get the commands →](https://delegatewithclaude.com/commands)
+Built by [Derek Larson](https://dtlarson.com). [Pair with commands →](https://delegatewithclaude.com/commands)
 
 ![Claude Anywhere on tablet](tablet-image.png)
 
