@@ -7835,34 +7835,40 @@ var ServerManager = {
   },
 
   // Get Tailscale IP (if connected) - async to avoid blocking plugin load
+  // Uses execFile to avoid shell profile issues in Electron environment
   async getTailscaleIP() {
     if (!this.isDesktop()) return null;
     try {
-      const { exec } = require('child_process');
-      const execAsync = (cmd) => new Promise((resolve, reject) => {
-        exec(cmd, { encoding: 'utf8', timeout: 3000, shell: '/bin/bash' }, (err, stdout) => {
-          if (err) reject(err);
-          else resolve(stdout);
-        });
-      });
+      const { execFile, exec } = require('child_process');
 
-      // Method 1: Try tailscale ip -4 (most direct)
+      // Method 1: Use execFile directly (no shell, most reliable)
+      const tailscalePath = '/Applications/Tailscale.app/Contents/MacOS/Tailscale';
       try {
-        const output = await execAsync("/Applications/Tailscale.app/Contents/MacOS/Tailscale ip -4 2>/dev/null || tailscale ip -4 2>/dev/null");
-        const ip = output.trim().split('\n')[0];
+        const ip = await new Promise((resolve, reject) => {
+          execFile(tailscalePath, ['ip', '-4'], { encoding: 'utf8', timeout: 3000 }, (err, stdout) => {
+            if (err) reject(err);
+            else resolve(stdout.trim().split('\n')[0]);
+          });
+        });
         if (ip && ip.startsWith('100.')) {
           return ip;
         }
       } catch (e1) {
-        console.log('Tailscale ip -4 failed:', e1.message);
+        console.log('Tailscale execFile failed:', e1.message);
       }
 
-      // Method 2: Parse network interfaces for Tailscale (utun) interface
+      // Method 2: Parse ifconfig with /bin/sh (no user profile sourcing)
       try {
-        const output = await execAsync("ifconfig | grep -A1 'utun' | grep 'inet 100\\.' | awk '{print $2}' | head -1");
-        const ip = output.trim();
-        if (ip && ip.startsWith('100.')) {
-          return ip;
+        const output = await new Promise((resolve, reject) => {
+          exec("ifconfig 2>/dev/null", { encoding: 'utf8', timeout: 3000, shell: '/bin/sh' }, (err, stdout) => {
+            if (err) reject(err);
+            else resolve(stdout);
+          });
+        });
+        // Parse for 100.x.x.x addresses (Tailscale CGNAT range)
+        const match = output.match(/inet (100\.\d+\.\d+\.\d+)/);
+        if (match) {
+          return match[1];
         }
       } catch (e2) {
         console.log('ifconfig fallback failed:', e2.message);
