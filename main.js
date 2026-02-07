@@ -7245,35 +7245,29 @@ var TerminalView = class extends import_obsidian.ItemView {
       this._viewportScrollHandler = () => this.updateiOSScrollIndicator();
       viewport.addEventListener('scroll', this._viewportScrollHandler, { passive: true });
     }
-    // Fix for Android GBoard voice dictation: clear textarea after each composition
-    // Voice dictation accumulates text across multiple inputs (e.g., "hello" then "world" → "helloworld")
-    // Solution: clear textarea after compositionend, with delay to let xterm process first
+    // Fix for Android GBoard voice dictation
+    // Problem: xterm syncs cursor context (spaces) into the textarea between inputs.
+    // When compositionstart fires, xterm records start = textarea.value.length,
+    // which includes those spaces, causing the first N chars of voice input to be
+    // skipped (where N = length of xterm's synced content).
+    // Fix: clear textarea in capture phase BEFORE xterm's compositionstart reads it.
     // See: https://github.com/xtermjs/xterm.js/issues/3600
     const textarea = this.term.textarea;
     if (textarea) {
-      this.compositionClearTimeout = null;
+      // Capture phase fires before xterm's bubble phase compositionstart handler,
+      // ensuring textarea.value.length is 0 when xterm records the start position
+      this.compositionStartHandler = () => {
+        textarea.value = "";
+      };
+      textarea.addEventListener('compositionstart', this.compositionStartHandler, true);
 
       this.compositionEndHandler = () => {
-        // Clear any pending timeout
-        if (this.compositionClearTimeout) {
-          clearTimeout(this.compositionClearTimeout);
-        }
-        // Wait for xterm to process the input, then clear textarea
-        this.compositionClearTimeout = setTimeout(() => {
+        // Clear textarea after xterm processes the composed text
+        setTimeout(() => {
           textarea.value = "";
-          this.compositionClearTimeout = null;
         }, 100);
       };
       textarea.addEventListener('compositionend', this.compositionEndHandler);
-
-      this.compositionStartHandler = () => {
-        // Cancel any pending clear - new composition starting
-        if (this.compositionClearTimeout) {
-          clearTimeout(this.compositionClearTimeout);
-          this.compositionClearTimeout = null;
-        }
-      };
-      textarea.addEventListener('compositionstart', this.compositionStartHandler);
     }
     // Debounce duplicate paste events (xterm.js can fire twice on external keyboards)
     this.lastPasteTime = 0;
@@ -7802,16 +7796,12 @@ var TerminalView = class extends import_obsidian.ItemView {
       this.pasteDebounceHandler = null;
     }
     if (this.compositionStartHandler) {
-      this.term?.textarea?.removeEventListener('compositionstart', this.compositionStartHandler);
+      this.term?.textarea?.removeEventListener('compositionstart', this.compositionStartHandler, true);
       this.compositionStartHandler = null;
     }
     if (this.compositionEndHandler) {
       this.term?.textarea?.removeEventListener('compositionend', this.compositionEndHandler);
       this.compositionEndHandler = null;
-    }
-    if (this.compositionClearTimeout) {
-      clearTimeout(this.compositionClearTimeout);
-      this.compositionClearTimeout = null;
     }
     if (this.fitTimeout) {
       clearTimeout(this.fitTimeout);
