@@ -6740,9 +6740,10 @@ var TerminalView = class extends import_obsidian.ItemView {
     this.sessionEnded = false;
     this.connectionLost = false;
     this.termHandlersSet = false;
-    // iOS keyboard handling
+    // Mobile OS detection for keyboard handling
     this.visualViewportHandler = null;
     this.isiOS = false;
+    this.isAndroid = false;
   }
   getViewType() {
     return VIEW_TYPE;
@@ -7213,7 +7214,7 @@ var TerminalView = class extends import_obsidian.ItemView {
       return;
     // Use BIGGER font on mobile for readability
     const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-    const isAndroid = /Android/i.test(navigator.userAgent);
+    this.isAndroid = /Android/i.test(navigator.userAgent);
     const fontSize = isMobile ? 20 : 13;
     // Mobile needs fonts with good box-drawing/Unicode support
     // Android: Roboto Mono, iOS: SF Mono/Menlo
@@ -7224,7 +7225,7 @@ var TerminalView = class extends import_obsidian.ItemView {
     this.term = new import_xterm.Terminal({
       // Android (Daylight DC-1): disable cursor blink to prevent ghost cursors
       // on slow-refresh transflective displays
-      cursorBlink: !isAndroid,
+      cursorBlink: !this.isAndroid,
       cursorStyle: 'block',  // More visible than line cursor
       cursorInactiveStyle: 'outline',  // Show cursor even when not focused
       fontSize: fontSize,
@@ -7232,7 +7233,7 @@ var TerminalView = class extends import_obsidian.ItemView {
       theme: this.getThemeColors(),
       scrollback: this.app.isMobile ? 1000 : 10000,  // Reduced on mobile for performance
       // Android: no smooth scroll to avoid ghosting on slow-refresh displays
-      smoothScrollDuration: isAndroid ? 0 : 100
+      smoothScrollDuration: this.isAndroid ? 0 : 100
     });
     this.fitAddon = new import_addon_fit.FitAddon();
     this.term.loadAddon(this.fitAddon);
@@ -7436,11 +7437,20 @@ var TerminalView = class extends import_obsidian.ItemView {
       const viewportY = buf.viewportY;
       const atBottom = buf.baseY - viewportY <= 1;
       this.fitAddon.fit();
-      if (atBottom) {
-        this.term.scrollToBottom();
-      } else {
-        // Restore scroll position to prevent jumping to top on resize
+
+      // Android: always preserve scroll position on resize (keyboard opening triggers resize)
+      // Otherwise it auto-scrolls to bottom when keyboard appears, even if user is scrolled up
+      if (this.isAndroid) {
+        // Restore scroll position to prevent jumping
         this.term.scrollLines(viewportY - this.term.buffer.active.viewportY);
+      } else {
+        // Desktop/iOS: only scroll to bottom if already at bottom
+        if (atBottom) {
+          this.term.scrollToBottom();
+        } else {
+          // Restore scroll position to prevent jumping to top on resize
+          this.term.scrollLines(viewportY - this.term.buffer.active.viewportY);
+        }
       }
     } catch (e) {}
   }
