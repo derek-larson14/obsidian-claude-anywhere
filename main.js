@@ -7006,6 +7006,16 @@ var TerminalView = class extends import_obsidian.ItemView {
     position: relative;
 }
 `;
+    // Android (Daylight DC-1): kill all animations/transitions to prevent
+    // ghost artifacts on slow-refresh transflective displays
+    if (/Android/i.test(navigator.userAgent)) {
+      style.textContent += `
+.xterm * {
+    animation: none !important;
+    transition: none !important;
+}
+`;
+    }
     document.head.appendChild(style);
   }
   buildUI() {
@@ -7203,6 +7213,7 @@ var TerminalView = class extends import_obsidian.ItemView {
       return;
     // Use BIGGER font on mobile for readability
     const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    const isAndroid = /Android/i.test(navigator.userAgent);
     const fontSize = isMobile ? 20 : 13;
     // Mobile needs fonts with good box-drawing/Unicode support
     // Android: Roboto Mono, iOS: SF Mono/Menlo
@@ -7211,14 +7222,17 @@ var TerminalView = class extends import_obsidian.ItemView {
       : "Menlo, Monaco, 'Cascadia Mono', 'Cascadia Code', Consolas, 'Courier New', monospace";
 
     this.term = new import_xterm.Terminal({
-      cursorBlink: true,
+      // Android (Daylight DC-1): disable cursor blink to prevent ghost cursors
+      // on slow-refresh transflective displays
+      cursorBlink: !isAndroid,
       cursorStyle: 'block',  // More visible than line cursor
       cursorInactiveStyle: 'outline',  // Show cursor even when not focused
       fontSize: fontSize,
       fontFamily: fontFamily,
       theme: this.getThemeColors(),
       scrollback: this.app.isMobile ? 1000 : 10000,  // Reduced on mobile for performance
-      smoothScrollDuration: 100  // Slightly smoother scroll animation
+      // Android: no smooth scroll to avoid ghosting on slow-refresh displays
+      smoothScrollDuration: isAndroid ? 0 : 100
     });
     this.fitAddon = new import_addon_fit.FitAddon();
     this.term.loadAddon(this.fitAddon);
@@ -7233,35 +7247,33 @@ var TerminalView = class extends import_obsidian.ItemView {
     }
     // Fix for Android GBoard voice dictation: clear textarea after each composition
     // Voice dictation accumulates text across multiple inputs (e.g., "hello" then "world" → "helloworld")
-    // Solution: listen for 'input' event which fires AFTER xterm processes composition
+    // Solution: clear textarea after compositionend, with delay to let xterm process first
     // See: https://github.com/xtermjs/xterm.js/issues/3600
     const textarea = this.term.textarea;
     if (textarea) {
-      let isInComposition = false;
-
-      this.compositionStartHandler = () => {
-        isInComposition = true;
-      };
-      textarea.addEventListener('compositionstart', this.compositionStartHandler);
+      this.compositionClearTimeout = null;
 
       this.compositionEndHandler = () => {
-        isInComposition = false;
+        // Clear any pending timeout
+        if (this.compositionClearTimeout) {
+          clearTimeout(this.compositionClearTimeout);
+        }
+        // Wait for xterm to process the input, then clear textarea
+        this.compositionClearTimeout = setTimeout(() => {
+          textarea.value = "";
+          this.compositionClearTimeout = null;
+        }, 100);
       };
       textarea.addEventListener('compositionend', this.compositionEndHandler);
 
-      // Clear textarea after input events during composition
-      // This fires AFTER xterm has processed the text via triggerDataEvent
-      this.compositionInputHandler = () => {
-        if (!isInComposition) {
-          // Use microtask to ensure xterm's handlers have fully completed
-          queueMicrotask(() => {
-            if (!isInComposition && textarea.value) {
-              textarea.value = "";
-            }
-          });
+      this.compositionStartHandler = () => {
+        // Cancel any pending clear - new composition starting
+        if (this.compositionClearTimeout) {
+          clearTimeout(this.compositionClearTimeout);
+          this.compositionClearTimeout = null;
         }
       };
-      textarea.addEventListener('input', this.compositionInputHandler);
+      textarea.addEventListener('compositionstart', this.compositionStartHandler);
     }
     // Debounce duplicate paste events (xterm.js can fire twice on external keyboards)
     this.lastPasteTime = 0;
@@ -7354,6 +7366,7 @@ var TerminalView = class extends import_obsidian.ItemView {
       const keyboardHeight = window.innerHeight - viewport.height;
       const isKeyboardOpen = keyboardHeight > 100; // Threshold to detect keyboard
 
+
       if (isKeyboardOpen) {
         // Get container's position relative to viewport
         const containerRect = container.getBoundingClientRect();
@@ -7422,23 +7435,18 @@ var TerminalView = class extends import_obsidian.ItemView {
       }
     }, 2000);
   }
-  fit(preserveScroll = true) {
+  fit() {
     if (!this.term || !this.fitAddon) return;
     try {
-      // Store scroll position before resize
-      const scrollPos = preserveScroll ? this.term.buffer.active.viewportY : null;
-
+      const buf = this.term.buffer.active;
+      const viewportY = buf.viewportY;
+      const atBottom = buf.baseY - viewportY <= 1;
       this.fitAddon.fit();
-
-      // Restore scroll position if requested
-      // Skip if we're at the bottom (within 1 line) - let it stay at bottom
-      if (preserveScroll && scrollPos !== null) {
-        const buffer = this.term.buffer.active;
-        const atBottom = buffer.baseY + buffer.cursorY - buffer.viewportY <= 1;
-        if (!atBottom) {
-          // Restore previous scroll position
-          this.term.scrollLines(scrollPos - buffer.viewportY);
-        }
+      if (atBottom) {
+        this.term.scrollToBottom();
+      } else {
+        // Restore scroll position to prevent jumping to top on resize
+        this.term.scrollLines(viewportY - this.term.buffer.active.viewportY);
       }
     } catch (e) {}
   }
@@ -7801,9 +7809,9 @@ var TerminalView = class extends import_obsidian.ItemView {
       this.term?.textarea?.removeEventListener('compositionend', this.compositionEndHandler);
       this.compositionEndHandler = null;
     }
-    if (this.compositionInputHandler) {
-      this.term?.textarea?.removeEventListener('input', this.compositionInputHandler);
-      this.compositionInputHandler = null;
+    if (this.compositionClearTimeout) {
+      clearTimeout(this.compositionClearTimeout);
+      this.compositionClearTimeout = null;
     }
     if (this.fitTimeout) {
       clearTimeout(this.fitTimeout);
