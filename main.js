@@ -8093,41 +8093,31 @@ var ClaudeAnywhereSettingTab = class extends import_obsidian.PluginSettingTab {
       const serverUrl = this.plugin.settings.remoteServer;
       const displayUrl = serverUrl ? serverUrl.replace(/^ws:\/\//, "") : "";
 
-      if (serverUrl) {
-        // Connected state — just show current server
-        new import_obsidian.Setting(containerEl)
-          .setName("Server")
-          .setDesc(displayUrl);
-      } else {
-        // Not configured — show manual entry with help text
+      if (!serverUrl) {
         containerEl.createEl("p", {
-          text: "No server found. If you use git to sync your vault, .obsidian may be in your .gitignore, so the server address won't sync automatically.",
+          text: "No server found. If you use git to sync your vault, .obsidian may be in your .gitignore, so the address won't sync automatically. You can find it in Claude Anywhere settings on your Mac (Remote Access \u2192 Status).",
           cls: "setting-item-description",
         });
-        containerEl.createEl("p", {
-          text: "You can find the address in Claude Anywhere settings on your Mac (under Remote Access \u2192 Status).",
-          cls: "setting-item-description",
-        });
-
-        new import_obsidian.Setting(containerEl)
-          .setName("Server address")
-          .setDesc("e.g. 100.x.x.x:8765")
-          .addText((text) =>
-            text
-              .setPlaceholder("100.x.x.x:8765")
-              .setValue("")
-              .onChange(async (value) => {
-                const trimmed = value.trim();
-                if (trimmed) {
-                  const url = trimmed.startsWith("ws://") ? trimmed : `ws://${trimmed}`;
-                  this.plugin.settings.remoteServer = url;
-                } else {
-                  this.plugin.settings.remoteServer = "";
-                }
-                await this.plugin.saveSettings();
-              })
-          );
       }
+
+      new import_obsidian.Setting(containerEl)
+        .setName("Server address")
+        .setDesc(serverUrl ? "From your Mac via vault sync" : "e.g. 100.x.x.x:8765")
+        .addText((text) =>
+          text
+            .setPlaceholder("100.x.x.x:8765")
+            .setValue(displayUrl)
+            .onChange(async (value) => {
+              const trimmed = value.trim();
+              if (trimmed) {
+                const url = trimmed.startsWith("ws://") ? trimmed : `ws://${trimmed}`;
+                this.plugin.settings.remoteServer = url;
+              } else {
+                this.plugin.settings.remoteServer = "";
+              }
+              await this.plugin.saveSettings();
+            })
+        );
     }
   }
 };
@@ -8137,7 +8127,6 @@ var VaultTerminalPlugin = class extends import_obsidian.Plugin {
   async onload() {
     await this.loadSettings();
 
-    // Only desktop saves settings - mobile only reads
     if (ServerManager.isDesktop()) {
       const currentPath = this.getVaultPath();
       if (currentPath && this.settings.vaultPath !== currentPath) {
