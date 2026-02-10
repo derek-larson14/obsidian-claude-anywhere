@@ -8,6 +8,7 @@ Run this on your Mac, connect from any device with the modified Obsidian plugin.
 No external dependencies - uses only Python standard library.
 """
 
+import argparse
 import asyncio
 import base64
 import fcntl
@@ -24,6 +25,7 @@ from pathlib import Path
 
 # Configuration
 PORT = 8765
+VAULT_PATH = None  # Set via --vault-path CLI arg; used as default CWD for Claude
 
 # Sync block markers - Claude Code wraps large updates in these
 # Stripping them prevents xterm.js from buffering massive atomic updates
@@ -273,34 +275,36 @@ class ClaudeSession:
             os.dup2(slave_fd, 2)
             os.close(slave_fd)
 
-            if cwd:
-                if not os.path.isabs(cwd):
+            # Use client-provided cwd if it exists on this machine, else VAULT_PATH
+            effective_cwd = cwd if (cwd and os.path.isdir(cwd)) else VAULT_PATH
+            if effective_cwd:
+                if not os.path.isabs(effective_cwd):
                     base_paths = [
-                        os.path.expanduser(f"~/Github/{cwd}"),
-                        os.path.expanduser(f"~/{cwd}"),
-                        cwd
+                        os.path.expanduser(f"~/Github/{effective_cwd}"),
+                        os.path.expanduser(f"~/{effective_cwd}"),
+                        effective_cwd
                     ]
                     for try_path in base_paths:
                         if os.path.isdir(try_path):
-                            cwd = try_path
+                            effective_cwd = try_path
                             break
 
                 # Check for defaultFolder in plugin settings
                 try:
-                    settings_path = os.path.join(cwd, ".obsidian", "plugins", "claude-anywhere", "data.json")
+                    settings_path = os.path.join(effective_cwd, ".obsidian", "plugins", "claude-anywhere", "data.json")
                     if os.path.exists(settings_path):
                         with open(settings_path, 'r') as f:
                             settings = json.load(f)
                             default_folder = settings.get("defaultFolder", "").strip()
                             if default_folder:
-                                folder_path = os.path.join(cwd, default_folder)
+                                folder_path = os.path.join(effective_cwd, default_folder)
                                 if os.path.isdir(folder_path):
-                                    cwd = folder_path
+                                    effective_cwd = folder_path
                 except (OSError, json.JSONDecodeError):
                     pass  # Ignore errors, use original cwd
 
                 try:
-                    os.chdir(cwd)
+                    os.chdir(effective_cwd)
                 except OSError:
                     pass
 
@@ -542,6 +546,11 @@ async def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--vault-path", help="Default working directory for Claude sessions")
+    args = parser.parse_args()
+    if args.vault_path:
+        VAULT_PATH = args.vault_path
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
