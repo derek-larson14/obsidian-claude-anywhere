@@ -7654,9 +7654,19 @@ var TerminalView = class extends import_obsidian.ItemView {
     this.wsRows = rows;
 
     try {
+      this.term?.writeln("\x1b[90mConnecting to your Mac...\x1b[0m");
       this.ws = new WebSocket(serverUrl);
 
+      // Fast timeout — don't wait 60s for browser's internal timeout
+      const connectTimeout = setTimeout(() => {
+        if (this.ws && this.ws.readyState !== WebSocket.OPEN) {
+          this.ws.close();
+        }
+      }, 8000);
+
       this.ws.onopen = () => {
+        clearTimeout(connectTimeout);
+        this.term?.clear();
         // Fit terminal FIRST to get accurate dimensions before starting session
         if (this.fitAddon) {
           this.fitAddon.fit();
@@ -7705,7 +7715,14 @@ var TerminalView = class extends import_obsidian.ItemView {
             // Not JSON, treat as terminal data
           }
         }
-        this.term?.write(event.data);
+        if (this.term) {
+          const buffer = this.term.buffer.active;
+          const nearBottom = buffer.baseY - buffer.viewportY <= 3;
+          this.term.write(event.data);
+          if (nearBottom && buffer.baseY !== buffer.viewportY) {
+            this.term.scrollToBottom();
+          }
+        }
       };
 
       this.ws.onclose = () => {
