@@ -7586,7 +7586,16 @@ var TerminalView = class extends import_obsidian.ItemView {
     this.stdoutDecoder = new StringDecoder("utf8");
     this.stderrDecoder = new StringDecoder("utf8");
     this.proc.stdout?.on("data", (data) => {
-      this.term?.write(this.stdoutDecoder.write(data));
+      if (this.term) {
+        // Check if near bottom (within 3 lines) before write
+        const buffer = this.term.buffer.active;
+        const nearBottom = buffer.baseY - buffer.viewportY <= 3;
+        this.term.write(this.stdoutDecoder.write(data));
+        // Snap back to bottom if we were near bottom
+        if (nearBottom && buffer.baseY !== buffer.viewportY) {
+          this.term.scrollToBottom();
+        }
+      }
     });
     this.proc.stderr?.on("data", (data) => {
       this.term?.write(this.stderrDecoder.write(data));
