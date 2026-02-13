@@ -71,6 +71,14 @@ This prevents sleep even when closing the lid (while plugged in). Close the Term
 
 **Files needed for manual install:** `main.js`, `manifest.json`, `styles.css`
 
+## Updating
+
+Paste into a Claude Code session from your vault:
+
+> Update the Claude Anywhere plugin. Download main.js, manifest.json, and styles.css from https://github.com/derek-larson14/obsidian-claude-anywhere/releases/latest/download/ into .obsidian/plugins/claude-anywhere/. Tell me the old and new version numbers.
+
+Then restart Obsidian or disable/re-enable the plugin.
+
 ## Usage
 
 ### Opening Claude
