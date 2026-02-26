@@ -7554,9 +7554,13 @@ var TerminalView = class extends import_obsidian.ItemView {
         cmd = "python";
       }
     }
+    let claudeCmd = "claude";
+    if (this.plugin._nextSessionYolo || this.plugin.settings.yoloMode) {
+      claudeCmd += " --dangerously-skip-permissions";
+    }
     let args = isWindows
       ? [ptyPath, String(cols), String(rows), shell]
-      : [ptyPath, String(cols), String(rows), shell, "-lc", "claude || true; exec $SHELL -i"];
+      : [ptyPath, String(cols), String(rows), shell, "-lc", `${claudeCmd} || true; exec $SHELL -i`];
 
     // Get PATH from user's login shell (GUI apps don't inherit shell config)
     let shellEnv = { ...process.env, TERM: "xterm-256color" };
