@@ -51,7 +51,7 @@ def find_claude():
     # Fallback: hope it's in PATH
     return "claude"
 
-CLAUDE_CMD = [find_claude()]
+CLAUDE_PATH = find_claude()
 
 # WebSocket constants
 WS_MAGIC = b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -277,6 +277,7 @@ class ClaudeSession:
 
             # Use client-provided cwd if it exists on this machine, else VAULT_PATH
             effective_cwd = cwd if (cwd and os.path.isdir(cwd)) else VAULT_PATH
+            yolo_mode = False
             if effective_cwd:
                 if not os.path.isabs(effective_cwd):
                     base_paths = [
@@ -289,7 +290,7 @@ class ClaudeSession:
                             effective_cwd = try_path
                             break
 
-                # Check for defaultFolder in plugin settings
+                # Check for defaultFolder and yoloMode in plugin settings
                 try:
                     settings_path = os.path.join(effective_cwd, ".obsidian", "plugins", "claude-anywhere", "data.json")
                     if os.path.exists(settings_path):
@@ -300,6 +301,7 @@ class ClaudeSession:
                                 folder_path = os.path.join(effective_cwd, default_folder)
                                 if os.path.isdir(folder_path):
                                     effective_cwd = folder_path
+                            yolo_mode = settings.get("yoloMode", False)
                 except (OSError, json.JSONDecodeError):
                     pass  # Ignore errors, use original cwd
 
@@ -309,7 +311,10 @@ class ClaudeSession:
                     pass
 
             os.environ["TERM"] = "xterm-256color"
-            os.execvp(CLAUDE_CMD[0], CLAUDE_CMD)
+            claude_cmd = [CLAUDE_PATH]
+            if yolo_mode:
+                claude_cmd.append("--dangerously-skip-permissions")
+            os.execvp(claude_cmd[0], claude_cmd)
         else:
             os.close(slave_fd)
             self.read_task = asyncio.create_task(self._read_pty())

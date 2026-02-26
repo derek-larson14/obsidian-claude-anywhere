@@ -120,6 +120,14 @@ Mobile                          Mac
 Connection: ws://100.x.x.x:8765 (Tailscale IP)
 ```
 
+## YOLO Mode
+
+Skip all permission prompts so Claude acts without asking. Useful on mobile where approving each tool use is painful.
+
+Settings → Claude Anywhere → Advanced → **YOLO Mode**
+
+One toggle, works everywhere — desktop local sessions and mobile relay sessions. The setting syncs across devices through your vault (Obsidian Sync, iCloud, git, etc.). The relay server reads it fresh each time it starts a new Claude session.
+
 ## Session Behavior
 
 **On disconnect:** Claude session is killed
