@@ -7857,7 +7857,8 @@ var DEFAULT_SETTINGS = {
   vaultPath: "",             // Full path to vault, set by desktop, used by mobile
   defaultFolder: "",         // Subfolder to start Claude in (relative to vault root)
   enableRemoteAccess: false, // Whether to run the relay server
-  autoStartServer: true      // Auto-start server on Obsidian launch
+  autoStartServer: true,     // Auto-start server on Obsidian launch
+  yoloMode: false            // Launch Claude with --dangerously-skip-permissions
 };
 
 // Relay server script embedded as base64 for BRAT/plugin directory compatibility
