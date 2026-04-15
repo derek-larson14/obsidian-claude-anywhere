@@ -7212,10 +7212,11 @@ var TerminalView = class extends import_obsidian.ItemView {
   async initTerminal() {
     if (!this.termHost)
       return;
-    // Use BIGGER font on mobile for readability
+    // Use BIGGER font on mobile for readability (configurable via plugin settings)
     const isMobile = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
     this.isAndroid = /Android/i.test(navigator.userAgent);
-    const fontSize = isMobile ? 20 : 13;
+    const mobileFontSize = this.plugin?.settings?.mobileFontSize ?? 16;
+    const fontSize = isMobile ? mobileFontSize : 13;
     // Mobile needs fonts with good box-drawing/Unicode support
     // Android: Roboto Mono, iOS: SF Mono/Menlo
     const fontFamily = isMobile
@@ -7862,7 +7863,8 @@ var DEFAULT_SETTINGS = {
   defaultFolder: "",         // Subfolder to start Claude in (relative to vault root)
   enableRemoteAccess: false, // Whether to run the relay server
   autoStartServer: true,     // Auto-start server on Obsidian launch
-  yoloMode: false            // Launch Claude with --dangerously-skip-permissions
+  yoloMode: false,           // Launch Claude with --dangerously-skip-permissions
+  mobileFontSize: 16         // Terminal font size on mobile (desktop is fixed at 13)
 };
 
 // Relay server script embedded as base64 for BRAT/plugin directory compatibility
@@ -8149,6 +8151,22 @@ var ClaudeAnywhereSettingTab = class extends import_obsidian.PluginSettingTab {
     // Advanced section (both platforms)
     containerEl.createEl("hr");
     containerEl.createEl("h3", { text: "Advanced" });
+
+    new import_obsidian.Setting(containerEl)
+      .setName("Mobile font size")
+      .setDesc("Terminal font size on phones/tablets in pixels. Default 16. Desktop is fixed at 13. Reopen the terminal view to apply.")
+      .addText((text) =>
+        text
+          .setPlaceholder("16")
+          .setValue(String(this.plugin.settings.mobileFontSize ?? 16))
+          .onChange(async (value) => {
+            const n = parseInt(value, 10);
+            if (!isNaN(n) && n >= 8 && n <= 40) {
+              this.plugin.settings.mobileFontSize = n;
+              await this.plugin.saveSettings();
+            }
+          })
+      );
 
     new import_obsidian.Setting(containerEl)
       .setName("YOLO Mode")
